@@ -45,6 +45,7 @@ The scraped data will be saved to a file named product_data.csv in the same dire
 Example Output
 diff
 Copy code
+<br>
 +-----------+------------------------------+----------------+
 | Website   | Product Name                 | Product Price  |
 +-----------+------------------------------+----------------+
