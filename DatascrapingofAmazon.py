@@ -2,14 +2,49 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import time
+import re
+import logging
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
+def send_email_notification(product_details):
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = receiver_email
+    msg['Subject'] = "Amazon Product Details Scraped Successfully"
+
+    body = json.dumps(product_details, indent=4)
+    msg.attach(MIMEText(body, 'plain'))
+
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(sender_email, password)
+        text = msg.as_string()
+        server.sendmail(sender_email, receiver_email, text)
+        server.quit()
+        print("Email notification sent successfully.")
+    except Exception as e:
+        print(f"Failed to send email: {e}")
+
+def validate_url(url):
+    amazon_url_pattern = re.compile(r"https?://(www\.)?amazon\.(com|in|co\.uk|ca|de|fr|jp)/.*")
+    return re.match(amazon_url_pattern, url)
 
 def scrape_amazon_product(url, max_retries=5):
+    if not validate_url(url):
+        print("Invalid Amazon URL.")
+        return
+    
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8"
     }
     retry_count = 0
     product_details = {}
+
+    logging.basicConfig(filename='scrape_amazon.log', level=logging.INFO, format='%(asctime)s:%(levelname)s:%(message)s')
 
     while retry_count < max_retries:
         try:
@@ -40,29 +75,43 @@ def scrape_amazon_product(url, max_retries=5):
                 if availability:
                     product_details['Availability'] = availability.find('span').get_text().strip()
 
+                features = soup.find('div', id='feature-bullets')
+                if features:
+                    product_details['Features'] = features.get_text().strip()
+
+                questions = soup.find('a', class_='a-link-normal askATFLink')
+                if questions:
+                    product_details['Customer Questions'] = questions.get_text().strip()
+
                 for key, value in product_details.items():
                     print(f"{key}: {value}")
                 
                 with open('product_details.json', 'w') as file:
                     json.dump(product_details, file, indent=4)
 
+                send_email_notification(product_details)
+                logging.info("Product details fetched and saved successfully.")
                 break
             else:
                 retry_count += 1
-                print(f"Retrying... ({retry_count}/{max_retries})")
-                time.sleep(2)
+                wait_time = 2 ** retry_count
+                print(f"Retrying in {wait_time} seconds... ({retry_count}/{max_retries})")
+                time.sleep(wait_time)
         except requests.exceptions.RequestException as e:
             retry_count += 1
-            print(f"Request failed: {e}. Retrying... ({retry_count}/{max_retries})")
-            time.sleep(2)
+            wait_time = 2 ** retry_count
+            logging.error(f"Request failed: {e}. Retrying in {wait_time} seconds... ({retry_count}/{max_retries})")
+            time.sleep(wait_time)
         except Exception as e:
-            print(f"An error occurred: {e}")
+            logging.error(f"An error occurred: {e}")
             break
 
     if retry_count == max_retries:
         print("Max retries reached. Failed to fetch the product details.")
+        logging.error("Max retries reached. Failed to fetch the product details.")
     else:
         print("Product details fetched successfully.")
+        logging.info("Product details fetched successfully.")
 
 if __name__ == "__main__":
     url = input("Enter the Amazon product URL: ")
